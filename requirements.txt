@@ -3,6 +3,7 @@ langchain
 flask
 pypdf
 python-dotenv
+pinecone
 langchain-pinecone
 langchain_community
 langchain_openai
