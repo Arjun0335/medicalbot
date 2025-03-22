@@ -1,6 +1,6 @@
 import streamlit as st
 import openai
-import pinecone
+from pinecone import Pinecone, ServerlessSpec
 import os
 import pypdf
 from datetime import datetime
@@ -8,20 +8,24 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 # Retrieve API keys from environment variables
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-PINECONE_ENV = os.getenv("PINECONE_ENV")
-PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME")
 
-# Ensure API keys are available
-if not all([OPENAI_API_KEY, PINECONE_API_KEY, PINECONE_ENV, PINECONE_INDEX_NAME]):
-    st.error("Missing API keys. Please check your environment variables.")
-    st.stop()
+
+# Initialize Pinecone instance
+pc = Pinecone(api_key = os.getenv("PINECONE_API_KEY"))
+PINECONE_API_KEY = pc
+# Check if the index exists, create if not
+if "medii" not in pc.list_indexes().names():
+    pc.create_index(
+        name="medii",
+        dimension=1536,  # Ensure this matches the embedding model
+        metric="euclidean",
+        spec=ServerlessSpec(cloud="aws", region="us-east-1")  # Use correct region
+    )
+
+# Connect to the index
+index = pc.Index("medii")
 
 openai.api_key = OPENAI_API_KEY
-
-# Initialize Pinecone
-pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENV)
-index = pinecone.Index(PINECONE_INDEX_NAME)
 
 # Page configuration
 st.set_page_config(page_title="Medical Chatbot", layout="wide")
