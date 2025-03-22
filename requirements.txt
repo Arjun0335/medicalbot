@@ -5,8 +5,12 @@ pypdf==3.8.1
 python-dotenv==1.0.0
 pinecone-client>=3,<4
 langchain-pinecone==0.0.3
-langchain-community==0.0.1
-langchain-openai==0.0.2
+langchain-community==0.0.11
+langchain-openai==0.0.8
 langchain-experimental==0.0.5
-streamlit==1.22.0
+streamlit==1.30.0
+rich==13.7.0
+markdown-it-py==2.2.0
+pygments==2.17.2
+mdurl==0.1.2
 -e .
