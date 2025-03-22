@@ -3,8 +3,8 @@ langchain==0.0.208
 flask==2.2.3
 pypdf==3.8.1
 python-dotenv==1.0.0
-pinecone-client==3.2.1
-langchain-pinecone==0.0.2
+pinecone-client>=3,<4
+langchain-pinecone==0.0.3
 langchain-community==0.0.1
 langchain-openai==0.0.2
 langchain-experimental==0.0.5
