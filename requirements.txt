@@ -1,12 +1,6 @@
-sentence-transformers==2.2.2
-python-dotenv==1.0.0
-langchain-community==0.0.11
 streamlit==1.30.0
-langchain-openai==0.3.9
-langchain-pinecone==0.3.9 
 openai==1.10.0
-pinecone-client==3.0.2 
-pypdf==3.17.1 
-langchain==0.0.239 
-langchain-experimental==0.0.5
+pinecone-client==3.0.2
+pypdf==3.17.1
+langchain==0.1.0
 -e .
