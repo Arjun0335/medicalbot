@@ -11,7 +11,6 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 
 # Initialize Pinecone instance
-pc = Pinecone(api_key = os.getenv("PINECONE_API_KEY"))
 PINECONE_API_KEY = pc
 # Check if the index exists, create if not
 if "medii" not in pc.list_indexes().names():
