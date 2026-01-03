@@ -4,14 +4,25 @@ from pinecone import Pinecone, ServerlessSpec
 import os
 import pypdf
 from datetime import datetime
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+def split_text(text, chunk_size=500, overlap=100):
+    chunks = []
+    start = 0
+
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start = end - overlap
+
+    return chunks
+
 
 # Retrieve API keys from environment variables
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 
 # Initialize Pinecone instance
-PINECONE_API_KEY = pc
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 # Check if the index exists, create if not
 if "medii" not in pc.list_indexes().names():
     pc.create_index(
@@ -37,8 +48,8 @@ def extract_text_from_pdf(file):
 
 # Function to split text into chunks
 def split_text_into_chunks(text):
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
-    return text_splitter.split_text(text)
+    chunks = split_text(text)
+    return chunks
 
 # Function to store document text in Pinecone
 def store_document_in_pinecone(text_chunks):
