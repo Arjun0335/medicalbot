@@ -23,6 +23,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Initialize Pinecone instance
 pc = os.getenv("PINECONE_API_KEY")
+pc = Pinecone(pc)
 # Check if the index exists, create if not
 if "medii" not in pc.list_indexes().names():
     pc.create_index(
@@ -98,4 +99,5 @@ if user_input:
     chatbot_response = get_chatbot_response(user_input)
     st.session_state["messages"].append({"text": user_input, "time": timestamp})
     st.session_state["messages"].append({"text": chatbot_response, "time": timestamp})
+
 
