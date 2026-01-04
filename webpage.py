@@ -1,106 +1,176 @@
 import streamlit as st
-import openai
-from pinecone import Pinecone, ServerlessSpec
 import os
-import pypdf
 from datetime import datetime
+import uuid
 
+import pypdf
+from openai import OpenAI
+from pinecone import Pinecone, ServerlessSpec
+
+# =====================================================
+# API KEYS
+# =====================================================
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+
+if not OPENAI_API_KEY or not PINECONE_API_KEY:
+    st.error("API keys not found. Please set them in environment variables or Streamlit Secrets.")
+    st.stop()
+
+# =====================================================
+# CLIENTS
+# =====================================================
+client = OpenAI(api_key=OPENAI_API_KEY)
+pc = Pinecone(api_key=PINECONE_API_KEY)
+
+# =====================================================
+# PINECONE INDEX
+# =====================================================
+INDEX_NAME = "medii"
+
+if INDEX_NAME not in pc.list_indexes().names():
+    pc.create_index(
+        name=INDEX_NAME,
+        dimension=1536,
+        metric="cosine",
+        spec=ServerlessSpec(cloud="aws", region="us-east-1")
+    )
+
+index = pc.Index(INDEX_NAME)
+
+# =====================================================
+# STREAMLIT CONFIG
+# =====================================================
+st.set_page_config(page_title="Medical Chatbot", layout="wide")
+st.title("🩺 Medical Chatbot")
+
+# =====================================================
+# TEXT SPLITTER (NO LANGCHAIN)
+# =====================================================
 def split_text(text, chunk_size=500, overlap=100):
     chunks = []
     start = 0
-
     while start < len(text):
         end = start + chunk_size
         chunks.append(text[start:end])
         start = end - overlap
-
     return chunks
 
-
-# Retrieve API keys from environment variables
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-
-# Initialize Pinecone instance
-pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
-
-# Check if the index exists, create if not
-if "medii" not in pc.list_indexes().names():
-    pc.create_index(
-        name="medii",
-        dimension=1536,  # Ensure this matches the embedding model
-        metric="euclidean",
-        spec=ServerlessSpec(cloud="aws", region="us-east-1")  # Use correct region
-    )
-
-# Connect to the index
-index = pc.Index("medii")
-
-openai.api_key = OPENAI_API_KEY
-
-# Page configuration
-st.set_page_config(page_title="Medical Chatbot", layout="wide")
-
-# Function to extract text from PDF using pypdf
+# =====================================================
+# PDF TEXT EXTRACTION (pypdf)
+# =====================================================
 def extract_text_from_pdf(file):
     reader = pypdf.PdfReader(file)
-    text = "\n".join([page.extract_text() for page in reader.pages if page.extract_text()])
+    text = ""
+    for page in reader.pages:
+        if page.extract_text():
+            text += page.extract_text()
     return text
 
-# Function to split text into chunks
-def split_text_into_chunks(text):
-    chunks = split_text(text)
-    return chunks
-
-# Function to store document text in Pinecone
+# =====================================================
+# STORE DOCUMENT IN PINECONE
+# =====================================================
 def store_document_in_pinecone(text_chunks):
-    for i, chunk in enumerate(text_chunks):
-        vector = openai.Embedding.create(input=[chunk], model="text-embedding-ada-002")["data"][0]["embedding"]
-        index.upsert([(f"doc_chunk_{i}", vector, {"text": chunk})])
+    vectors = []
 
-# File uploader
-uploaded_file = st.file_uploader("Upload a PDF document", type=["pdf"])
-if uploaded_file:
-    extracted_text = extract_text_from_pdf(uploaded_file)
-    text_chunks = split_text_into_chunks(extracted_text)
-    store_document_in_pinecone(text_chunks)
-    st.success("Document uploaded and processed successfully!")
+    for chunk in text_chunks:
+        embedding = client.embeddings.create(
+            model="text-embedding-3-small",
+            input=chunk
+        ).data[0].embedding
 
-# Function to retrieve relevant text from Pinecone
+        vectors.append((
+            str(uuid.uuid4()),
+            embedding,
+            {"text": chunk}
+        ))
+
+    index.upsert(vectors)
+
+# =====================================================
+# RETRIEVE FROM PINECONE
+# =====================================================
 def retrieve_from_pinecone(query):
-    query_vector = openai.Embedding.create(input=[query], model="text-embedding-ada-002")["data"][0]["embedding"]
-    results = index.query(query_vector, top_k=3, include_metadata=True)
-    retrieved_texts = [match["metadata"]["text"] for match in results["matches"]]
-    return "\n".join(retrieved_texts)
+    query_embedding = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=query
+    ).data[0].embedding
 
-# Function to get chatbot response
+    results = index.query(
+        vector=query_embedding,
+        top_k=3,
+        include_metadata=True
+    )
+
+    return "\n".join(
+        match["metadata"]["text"] for match in results["matches"]
+    )
+
+# =====================================================
+# CHATBOT RESPONSE
+# =====================================================
 def get_chatbot_response(query):
     relevant_text = retrieve_from_pinecone(query)
-    prompt = f"Relevant context: {relevant_text}\nUser question: {query}"
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
+
+    prompt = f"""
+You are a medical assistant.
+Answer ONLY using the context below.
+If not found, say "Information not available in the document."
+
+Context:
+{relevant_text}
+
+Question:
+{query}
+"""
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}]
     )
-    return response["choices"][0]["message"]["content"]
 
-# Display chat history
+    return response.choices[0].message.content
+
+# =====================================================
+# FILE UPLOAD
+# =====================================================
+uploaded_file = st.file_uploader("Upload a PDF document", type=["pdf"])
+
+if uploaded_file:
+    with st.spinner("Processing PDF..."):
+        extracted_text = extract_text_from_pdf(uploaded_file)
+        text_chunks = split_text(extracted_text)
+        store_document_in_pinecone(text_chunks)
+
+    st.success("✅ Document uploaded and processed successfully!")
+
+# =====================================================
+# CHAT HISTORY
+# =====================================================
 if "messages" not in st.session_state:
     st.session_state["messages"] = []
 
-chat_container = st.container()
-with chat_container:
-    for msg in st.session_state["messages"]:
-        st.markdown(f'<div class="chat-container"><div class="chat-message">{msg["text"]}</div><small>{msg["time"]}</small></div>', unsafe_allow_html=True)
+for msg in st.session_state["messages"]:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
 
-# User input
-user_input = st.text_input("Type your message...", key="user_input")
+# =====================================================
+# USER INPUT
+# =====================================================
+user_input = st.chat_input("Type your message...")
+
 if user_input:
     timestamp = datetime.now().strftime("%H:%M")
-    chatbot_response = get_chatbot_response(user_input)
-    st.session_state["messages"].append({"text": user_input, "time": timestamp})
-    st.session_state["messages"].append({"text": chatbot_response, "time": timestamp})
 
+    st.session_state["messages"].append(
+        {"role": "user", "content": user_input, "time": timestamp}
+    )
 
+    with st.chat_message("assistant"):
+        with st.spinner("Thinking..."):
+            chatbot_response = get_chatbot_response(user_input)
+            st.markdown(chatbot_response)
 
-
-
+    st.session_state["messages"].append(
+        {"role": "assistant", "content": chatbot_response, "time": timestamp}
+    )
