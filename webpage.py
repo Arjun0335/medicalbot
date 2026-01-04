@@ -1,24 +1,24 @@
 import streamlit as st
 import os
-from datetime import datetime
 import uuid
+from datetime import datetime
 
 import pypdf
 from openai import OpenAI
 from pinecone import Pinecone, ServerlessSpec
 
 # =====================================================
-# API KEYS
+# READ API KEYS
 # =====================================================
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 
 if not OPENAI_API_KEY or not PINECONE_API_KEY:
-    st.error("API keys not found. Please set them in environment variables or Streamlit Secrets.")
+    st.error("❌ API Keys not found. Add them in Streamlit Secrets or environment variables.")
     st.stop()
 
 # =====================================================
-# CLIENTS
+# CLIENT INITIALIZATION (SAFE)
 # =====================================================
 client = OpenAI(api_key=OPENAI_API_KEY)
 pc = Pinecone(api_key=PINECONE_API_KEY)
@@ -33,7 +33,10 @@ if INDEX_NAME not in pc.list_indexes().names():
         name=INDEX_NAME,
         dimension=1536,
         metric="cosine",
-        spec=ServerlessSpec(cloud="aws", region="us-east-1")
+        spec=ServerlessSpec(
+            cloud="aws",
+            region="us-east-1"
+        )
     )
 
 index = pc.Index(INDEX_NAME)
@@ -42,10 +45,10 @@ index = pc.Index(INDEX_NAME)
 # STREAMLIT CONFIG
 # =====================================================
 st.set_page_config(page_title="Medical Chatbot", layout="wide")
-st.title("🩺 Medical Chatbot")
+st.title("🩺 Medical PDF Chatbot")
 
 # =====================================================
-# TEXT SPLITTER (NO LANGCHAIN)
+# SIMPLE TEXT SPLITTER (NO LANGCHAIN)
 # =====================================================
 def split_text(text, chunk_size=500, overlap=100):
     chunks = []
@@ -70,10 +73,10 @@ def extract_text_from_pdf(file):
 # =====================================================
 # STORE DOCUMENT IN PINECONE
 # =====================================================
-def store_document_in_pinecone(text_chunks):
+def store_document_in_pinecone(chunks):
     vectors = []
 
-    for chunk in text_chunks:
+    for chunk in chunks:
         embedding = client.embeddings.create(
             model="text-embedding-3-small",
             input=chunk
@@ -88,7 +91,7 @@ def store_document_in_pinecone(text_chunks):
     index.upsert(vectors)
 
 # =====================================================
-# RETRIEVE FROM PINECONE
+# RETRIEVE CONTEXT
 # =====================================================
 def retrieve_from_pinecone(query):
     query_embedding = client.embeddings.create(
@@ -110,15 +113,16 @@ def retrieve_from_pinecone(query):
 # CHATBOT RESPONSE
 # =====================================================
 def get_chatbot_response(query):
-    relevant_text = retrieve_from_pinecone(query)
+    context = retrieve_from_pinecone(query)
 
     prompt = f"""
 You are a medical assistant.
 Answer ONLY using the context below.
-If not found, say "Information not available in the document."
+If the answer is not available, say:
+"Information not available in the uploaded document."
 
 Context:
-{relevant_text}
+{context}
 
 Question:
 {query}
@@ -134,43 +138,41 @@ Question:
 # =====================================================
 # FILE UPLOAD
 # =====================================================
-uploaded_file = st.file_uploader("Upload a PDF document", type=["pdf"])
+uploaded_file = st.file_uploader("📄 Upload a Medical PDF", type=["pdf"])
 
 if uploaded_file:
     with st.spinner("Processing PDF..."):
-        extracted_text = extract_text_from_pdf(uploaded_file)
-        text_chunks = split_text(extracted_text)
-        store_document_in_pinecone(text_chunks)
+        text = extract_text_from_pdf(uploaded_file)
+        chunks = split_text(text)
+        store_document_in_pinecone(chunks)
 
-    st.success("✅ Document uploaded and processed successfully!")
+    st.success("✅ Document uploaded and indexed successfully")
 
 # =====================================================
 # CHAT HISTORY
 # =====================================================
 if "messages" not in st.session_state:
-    st.session_state["messages"] = []
+    st.session_state.messages = []
 
-for msg in st.session_state["messages"]:
+for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
 # =====================================================
 # USER INPUT
 # =====================================================
-user_input = st.chat_input("Type your message...")
+user_input = st.chat_input("Ask a question from the PDF...")
 
 if user_input:
-    timestamp = datetime.now().strftime("%H:%M")
-
-    st.session_state["messages"].append(
-        {"role": "user", "content": user_input, "time": timestamp}
+    st.session_state.messages.append(
+        {"role": "user", "content": user_input}
     )
 
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-            chatbot_response = get_chatbot_response(user_input)
-            st.markdown(chatbot_response)
+            answer = get_chatbot_response(user_input)
+            st.markdown(answer)
 
-    st.session_state["messages"].append(
-        {"role": "assistant", "content": chatbot_response, "time": timestamp}
+    st.session_state.messages.append(
+        {"role": "assistant", "content": answer}
     )
